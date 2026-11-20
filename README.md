@@ -1,6 +1,6 @@
 # Euronext Trading Game
 
-The Python implementation of my equity strategy for the Euronext Trading Game. The strategy combines sector-specific fundamental screening with price trends and volatility to guide weekly portfolio decisions.
+I present to you the Python implementation of my equity strategy for the Euronext Trading Game. The strategy combines sector-specific fundamental screening with price trends and volatility to guide weekly portfolio decisions.
 
 ## Current implementation
 
