@@ -2,7 +2,20 @@
 
 I present to you the Python implementation of my equity strategy for the Euronext Trading Game. The strategy combines sector-specific fundamental screening with price trends and volatility to guide weekly portfolio decisions.
 
-## Current implementation
+## How the strategy works
+
+The Excel reference model follows each security from screening through trade execution and portfolio reporting.
+
+| Stage | Decision or output |
+| --- | --- |
+| Fundamental screening | Compare valuation and profitability within peer groups. The model uses the peer median and median absolute deviation to calculate robust z-scores, clips extreme scores, and applies valuation and quality thresholds. Banks also face a CET1 capital headroom requirement. |
+| Entry and exit | Combine fundamental eligibility with price bands around the 100-session moving average. Separate rules for new and existing positions allow a holding to remain invested inside the buffer. |
+| Position sizing | Allocate the equity budget across active names using inverse volatility. Stock and sector caps constrain target weights, and the portfolio tracks the remaining cash. |
+| Trades and holdings | Record each fill in the buy–sell register. Quantities, costs and cash movements feed the positions table and dashboard. |
+| Performance and risk | Reconstruct daily portfolio value from dated trades and prices, account for external flows, and track returns and drawdown. Compare realised volatility with a 60-session risk estimate based on current weights. |
+| Reporting | Retain eligibility history, source dates and fundamental-data checks so portfolio decisions can be traced to the information available at the time. |
+
+## Current Python implementation
 
 Running [main.py](main.py) prints two tables. The first summarises the latest trading session across the stock universe. The second compares trailing and forward earnings multiples for industrial companies.
 
