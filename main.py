@@ -564,3 +564,33 @@ if not portfolio_history.empty:
     print(weekly.drop(columns=diversification_columns).to_string(float_format="{:.2%}".format, na_rep="n.a."))
     print("\nWeekly diversification")
     print(weekly[diversification_columns].to_string(float_format="{:.2f}".format, na_rep="n.a."))
+
+    readme_path = workbook.parent.parent / "README.md"
+    start_marker = "<!-- portfolio:start -->"
+    end_marker = "<!-- portfolio:end -->"
+    readme = readme_path.read_text(encoding="utf-8") if readme_path.exists() else ""
+    if readme.count(start_marker) == readme.count(end_marker) == 1 and readme.index(start_marker) < readme.index(end_marker):
+        first = portfolio_history.iloc[0]
+        last_week = weekly.iloc[-1]
+        metrics = [
+            ("Starting cash", f"€{starting_cash:,.2f}"),
+            ("Starting capital including opening gifts", f"€{first['Contributed capital']:,.2f}"),
+            ("**Current portfolio value**", f"**€{closing['Total value']:,.2f}**"),
+            ("Realised P&L", f"€{realised:,.2f}"),
+            ("Unrealised P&L", f"€{unrealised:,.2f}"),
+            ("**Total P&L**", f"**€{closing['P&L']:,.2f}**"),
+            ("Return since inception", f"{closing['Cumulative return']:.2%}"),
+            ("Realised volatility · annualised since inception", f"{last_week['Realised volatility since inception']:.2%}" if len(returns) > 1 else "Pending second session"),
+            ("Current drawdown", f"{last_week['Closing drawdown']:.2%}"),
+            ("Maximum drawdown since inception", f"{last_week['Maximum drawdown to date']:.2%}"),
+            ("**Stock HHI**", f"**{closing['Stock HHI']:,.2f}**" if pd.notna(closing['Stock HHI']) else "No invested holdings"),
+        ]
+        lines = [f"**{closing.name:%d %B %Y} close** · {len(returns)} trading sessions · EUR",
+                 "", "| Portfolio measure | Value |", "| --- | ---: |"]
+        for label, value in metrics:
+            lines.append(f"| {label} | {value.replace('€-', '−€')} |")
+        before = readme.split(start_marker, 1)[0]
+        after = readme.split(end_marker, 1)[1]
+        updated = before + start_marker + "\n" + "\n".join(lines) + "\n" + end_marker + after
+        if updated != readme:
+            readme_path.write_text(updated, encoding="utf-8")
