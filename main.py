@@ -572,23 +572,56 @@ if not portfolio_history.empty:
     if readme.count(start_marker) == readme.count(end_marker) == 1 and readme.index(start_marker) < readme.index(end_marker):
         first = portfolio_history.iloc[0]
         last_week = weekly.iloc[-1]
-        metrics = [
-            ("Starting cash", f"€{starting_cash:,.2f}"),
-            ("Starting capital including opening gifts", f"€{first['Contributed capital']:,.2f}"),
-            ("**Current portfolio value**", f"**€{closing['Total value']:,.2f}**"),
-            ("Realised P&L", f"€{realised:,.2f}"),
-            ("Unrealised P&L", f"€{unrealised:,.2f}"),
-            ("**Total P&L**", f"**€{closing['P&L']:,.2f}**"),
-            ("Return since inception", f"{closing['Cumulative return']:.2%}"),
-            ("Realised volatility · annualised since inception", f"{last_week['Realised volatility since inception']:.2%}" if len(returns) > 1 else "Pending second session"),
-            ("Current drawdown", f"{last_week['Closing drawdown']:.2%}"),
-            ("Maximum drawdown since inception", f"{last_week['Maximum drawdown to date']:.2%}"),
-            ("**Stock HHI**", f"**{closing['Stock HHI']:,.2f}**" if pd.notna(closing['Stock HHI']) else "No invested holdings"),
+        import matplotlib.pyplot as plt
+        import matplotlib.dates as mdates
+
+        curve = portfolio_history["Cumulative return"] * 100
+        chart_path = history_path.with_name("portfolio_performance.svg")
+        with plt.rc_context({"svg.hashsalt": "euronext-performance", "svg.fonttype": "none",
+                             "font.family": "DejaVu Sans", "font.size": 10}):
+            fig, ax = plt.subplots(figsize=(10, 2.8), layout="constrained")
+            fig.patch.set_facecolor("#f5f8f7")
+            ax.set_facecolor("#f5f8f7")
+            ax.axhline(0, color="#71857f", linewidth=0.9)
+            ax.fill_between(curve.index, curve, 0, color="#c4ded5", alpha=0.8)
+            ax.plot(curve.index, curve, color="#146751", linewidth=2.3)
+            ax.scatter(curve.index[-1], curve.iloc[-1], color="#146751", s=30, zorder=3)
+            ax.set_title("Cumulative portfolio return", loc="left", weight="bold", color="#183d33")
+            ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda value, _: f"{value:g}%"))
+            locator = mdates.AutoDateLocator(minticks=3, maxticks=7)
+            ax.xaxis.set_major_locator(locator)
+            ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
+            ax.grid(axis="y", color="#d9e3df", linewidth=0.7)
+            ax.set_axisbelow(True)
+            ax.spines[:].set_visible(False)
+            ax.tick_params(length=0, pad=6, colors="#405c53")
+            fig.savefig(chart_path, format="svg", metadata={"Date": None})
+            plt.close(fig)
+
+        def euros(value):
+            return f"{'−' if value < 0 else ''}€{abs(value):,.2f}"
+
+        vol = last_week["Realised volatility since inception"]
+        vol_label = f"{vol:.2%}" if pd.notna(vol) else "Pending second session"
+        hhi = closing["Stock HHI"]
+        hhi_label = f"{hhi:,.2f}" if pd.notna(hhi) else "No invested holdings"
+        lines = [
+            f"**At the close of {closing.name:%d %B %Y}** · {len(returns)} trading sessions",
+            "",
+            "| Portfolio value | Total P&L | Return since inception |",
+            "| ---: | ---: | ---: |",
+            f"| **{euros(closing['Total value'])}** | **{euros(closing['P&L'])}** | **{closing['Cumulative return']:.2%}** |",
+            "",
+            "![Daily cumulative portfolio return since inception](reports/portfolio_performance.svg)",
+            "",
+            "| Capital and earnings | EUR | Risk and diversification | Value |",
+            "| --- | ---: | --- | ---: |",
+            f"| Starting cash | {euros(starting_cash)} | Annualised realised volatility | {vol_label} |",
+            f"| Starting capital with gift | {euros(first['Contributed capital'])} | Current drawdown | {last_week['Closing drawdown']:.2%} |",
+            f"| Realised P&L | {euros(realised)} | Maximum drawdown | {last_week['Maximum drawdown to date']:.2%} |",
+            f"| Unrealised P&L | {euros(unrealised)} | Stock HHI | {hhi_label} |",
+            "",
         ]
-        lines = [f"**{closing.name:%d %B %Y} close** · {len(returns)} trading sessions · EUR",
-                 "", "| Portfolio measure | Value |", "| --- | ---: |"]
-        for label, value in metrics:
-            lines.append(f"| {label} | {value.replace('€-', '−€')} |")
         before = readme.split(start_marker, 1)[0]
         after = readme.split(end_marker, 1)[1]
         updated = before + start_marker + "\n" + "\n".join(lines) + "\n" + end_marker + after
