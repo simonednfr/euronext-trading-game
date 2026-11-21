@@ -339,6 +339,31 @@ def build_portfolio_history(prices, fills, initial_cash):
     history["Daily return"] = history["Total value"] / (previous_value + history["Gift contribution"]) - 1
     history["Cumulative return"] = (1 + history["Daily return"]).cumprod() - 1
     history["Gift reference price used"] = gift_reference_used
+    sector_map = screen_inputs["Sheet"].to_dict()
+    sector_map.update({"AI.PA": "materials", "ORA.PA": "communications", "KPN.AS": "communications", "ENX.PA": "financial"})
+    market_values = (holdings * marks).fillna(0)
+    weights = market_values.div(history["Securities"].replace(0, float("nan")), axis=0)
+    sectors = weights.T.groupby([sector_map[t] for t in weights.columns]).sum().T
+    concentration = weights.pow(2).sum(axis=1, min_count=1)
+    history["Stock HHI"] = 10_000 * concentration
+    history["Effective holdings"] = 1 / concentration
+    history["Sector HHI"] = (10_000 * sectors.pow(2).sum(axis=1)).where(history["Securities"] > 0)
+    history["Holdings"] = holdings.gt(0).sum(axis=1)
+    history["Sectors held"] = sectors.gt(0).sum(axis=1)
+
+    # PF RISK models screened equities only, using each valuation date's weights.
+    risk_returns = prices.pct_change(fill_method=None)
+    ratios = []
+    for date, allocation in weights.iterrows():
+        active = allocation[allocation.gt(0) & allocation.index.isin(screen_inputs.index)]
+        window = risk_returns.loc[:date, active.index].tail(60)
+        ratio = float("nan")
+        if not active.empty and len(window) == 60 and window.notna().all().all():
+            basket_vol = (window @ active).std()
+            if basket_vol > 0:
+                ratio = window.std().dot(active) / basket_vol
+        ratios.append(ratio)
+    history["Diversification ratio"] = ratios
     return history
 
 
@@ -429,6 +454,10 @@ if not portfolio_history.empty:
     compounded = (1 + weekly["Weekly return"]).cumprod() - 1
     if (compounded - weekly["Since inception return"]).abs().max() > 1e-10:
         raise ValueError("Weekly returns do not reconcile to daily portfolio history.")
+    diversification_columns = ["Holdings", "Sectors held", "Stock HHI", "Sector HHI", "Effective holdings", "Diversification ratio"]
+    weekly = weekly.join(portfolio_history[diversification_columns], how="left")
     weekly.to_csv(history_path.with_name("weekly_performance.csv"))
     print("\nWeekly portfolio performance and risk")
-    print(weekly.to_string(float_format="{:.2%}".format, na_rep="n.a."))
+    print(weekly.drop(columns=diversification_columns).to_string(float_format="{:.2%}".format, na_rep="n.a."))
+    print("\nWeekly diversification")
+    print(weekly[diversification_columns].to_string(float_format="{:.2f}".format, na_rep="n.a."))
