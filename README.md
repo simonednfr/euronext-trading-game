@@ -1,6 +1,7 @@
 # Euronext Trading Game
 
-The strategy screens equities against sector peers, uses a 100-session moving average for entries and exits, and sizes positions by inverse volatility.
+Welcome to my page! I present to you my strategy for the Euronext Trading Game 2026 that takes place on the NextWise Platform. The strategy screens Euro equities; starting from their fundamentals, i compute Ratios which then are converted to z-scores. Eligible stocks are then assessed using a 100-session moving average to evaluate their trend and generate signals using lower and upper bands. Risk management relies on inverse volatility sizing. Diversification is assured by a sector cap of 20% and a stock cap of 6%, also following the 5/10/40 rule. Key metrics are Cumulative Returns, Annualized Vol., Drawdown and HHI.
+
 Daily adjusted closes from Yahoo Finance and manually updated company fundamentals feed the [market workbook](data/market_data.xlsx). Portfolio results use [executed game trades](data/trades.csv).
 
 ## Portfolio dashboard
