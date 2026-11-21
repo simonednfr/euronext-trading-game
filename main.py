@@ -236,7 +236,7 @@ print(signals[["Quantity", "Close", "Lower", "Upper", "Signal"]].to_string(
 
 
 # Weekly execution settings from PORTFOLIO and VOL. SIZING.
-phase_in = 1.00  # Held positions target full weight. New entries always start at 50%.
+phase_in = 0.50  # Portfolio-wide decision for held positions: 0.50 or 1.00.
 starting_cash = 50_000
 equity_budget = 0.90
 stock_cap = 0.06
@@ -336,13 +336,6 @@ def size_tranche():
     full = book["Full weight"]
     held_position = book["Quantity"].gt(0)
     fraction = pd.Series(0.50, index=book.index).where(~held_position, phase_in)
-    # Trace the current holding back to its most recent opening fill.
-    ordered = executed.sort_values("Date", kind="stable")
-    previous_qty = ordered.groupby("Ticker")["Signed quantity"].cumsum() - ordered["Signed quantity"]
-    openings = ordered.loc[previous_qty.eq(0) & ordered["Signed quantity"].gt(0)]
-    opened = openings.groupby("Ticker")["Date"].last().reindex(book.index)
-    same_week = opened.dt.to_period("W-SUN").eq(prices.index[-1].to_period("W-SUN"))
-    fraction = fraction.mask(same_week, 0.50)
     book["Tranche fraction"] = fraction.where(active)
     phased = (fraction * full).clip(lower=current).clip(upper=full)
     book["Phased weight"] = phased
@@ -353,7 +346,6 @@ def size_tranche():
     book["Action"] = "No trade"
     book.loc[trade.gt(0) & ~held_position, "Action"] = "First tranche"
     book.loc[trade.gt(0) & held_position, "Action"] = "Top-up" if phase_in == 1 else "Add to first tranche"
-    book.loc[trade.gt(0) & held_position & same_week, "Action"] = "Add to first tranche"
     book.loc[trade.lt(0), "Action"] = "Reduce"
     book.loc[trade.lt(0) & book["Signal"].eq("Sell All"), "Action"] = "Sell all"
     print(f"\nNew entries 50% | held target {phase_in:.0%} | portfolio EUR {nav:,.2f} | cash EUR {cash:,.2f}")
