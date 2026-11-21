@@ -10,6 +10,10 @@ The portfolio returned −2.25% this week and −2.06% since inception. Closing 
 | 2026-11-13 | 0.72% | 15 | 9 | 793.17 | 1,496.18 | 12.61 | 2.01 |
 | 2026-11-20 | -2.25% | 15 | 9 | 793.72 | 1,493.02 | 12.60 | 1.85 |
 
+![Stock HHI compared with equal weighting at each weekly close](stock_hhi_2026-11-20.svg)
+
+At 20 November, the equal-weight reference for 15 holdings was 666.67, compared with the portfolio’s 793.72.
+
 Stock HHI measures concentration across securities. Each weight is market value divided by total invested securities. Squared weights are summed and multiplied by 10,000. Cash is excluded and the gifted Euronext share is included. Sector HHI uses aggregate sector weights. Effective holdings equal 10,000 divided by stock HHI. The current 15 holdings have the concentration of 12.60 equally weighted holdings.
 
 Stock HHI moved only 0.55 points during the week. The volatility diversification ratio fell from 2.01 to 1.85. This ratio uses closing weights and 60 historical daily stock returns for screened equities, dividing weighted-average stock volatility by basket volatility. The gift is outside the screened universe. Official platform diversification scores have yet to be reconciled.
