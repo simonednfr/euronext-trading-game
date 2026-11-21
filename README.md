@@ -14,7 +14,7 @@ Daily adjusted closes from Yahoo Finance and manually updated company fundamenta
 | ---: | ---: | ---: |
 | **€49,140.83** | **−€1,036.07** | **-2.06%** |
 
-![Daily cumulative portfolio return since inception](reports/portfolio_performance.svg)
+![Portfolio and STOXX Europe 600 EUR Net Return since inception](reports/portfolio_vs_benchmark.svg)
 
 ![Capital allocation by sector and realised plus unrealised P&L by stock](reports/allocation_and_pnl.svg)
 

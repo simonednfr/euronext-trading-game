@@ -576,17 +576,26 @@ if not portfolio_history.empty:
         import matplotlib.dates as mdates
 
         curve = portfolio_history["Cumulative return"] * 100
-        chart_path = history_path.with_name("portfolio_performance.svg")
+        benchmark = pd.read_csv(workbook.parent / "benchmark.csv", parse_dates=["Date"]).set_index("Date")["Close"]
+        baseline_date = prices.index[prices.index < curve.index[0]].max()
+        dates = curve.index.insert(0, baseline_date)
+        levels = benchmark.reindex(dates)
+        if levels.isna().any() or not levels.between(0, float("inf"), inclusive="neither").all():
+            raise ValueError("Check benchmark.csv for missing or invalid closes on portfolio dates.")
+        benchmark_return = 100 * (levels / levels.iloc[0] - 1)
+        curve = curve.reindex(dates, fill_value=0)
+        chart_path = history_path.with_name("portfolio_vs_benchmark.svg")
         with plt.rc_context({"svg.hashsalt": "euronext-performance", "svg.fonttype": "none",
                              "font.family": "DejaVu Sans", "font.size": 10}):
             fig, ax = plt.subplots(figsize=(10, 2.8), layout="constrained")
             fig.patch.set_facecolor("#f5f8f7")
             ax.set_facecolor("#f5f8f7")
             ax.axhline(0, color="#71857f", linewidth=0.9)
-            ax.fill_between(curve.index, curve, 0, color="#c4ded5", alpha=0.8)
-            ax.plot(curve.index, curve, color="#146751", linewidth=2.3)
+            ax.plot(dates, benchmark_return, color="#677584", linestyle="--", label=f"STOXX Europe 600 EUR Net Return  {benchmark_return.iloc[-1]:+.2f}%")
+            ax.plot(curve.index, curve, color="#146751", linewidth=2.3, label=f"Portfolio  {curve.iloc[-1]:+.2f}%")
+            ax.legend(frameon=False)
             ax.scatter(curve.index[-1], curve.iloc[-1], color="#146751", s=30, zorder=3)
-            ax.set_title("Cumulative portfolio return", loc="left", weight="bold", color="#183d33")
+            ax.set_title("Cumulative return since inception", loc="left", weight="bold", color="#183d33")
             ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda value, _: f"{value:g}%"))
             locator = mdates.AutoDateLocator(minticks=3, maxticks=7)
             ax.xaxis.set_major_locator(locator)
@@ -676,7 +685,7 @@ if not portfolio_history.empty:
             "| ---: | ---: | ---: |",
             f"| **{euros(closing['Total value'])}** | **{euros(closing['P&L'])}** | **{closing['Cumulative return']:.2%}** |",
             "",
-            "![Daily cumulative portfolio return since inception](reports/portfolio_performance.svg)",
+            "![Portfolio and STOXX Europe 600 EUR Net Return since inception](reports/portfolio_vs_benchmark.svg)",
             "",
             "![Capital allocation by sector and realised plus unrealised P&L by stock](reports/allocation_and_pnl.svg)",
             "",
