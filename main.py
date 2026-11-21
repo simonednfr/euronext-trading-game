@@ -1,9 +1,40 @@
 import hashlib
 import os
 import tempfile
+import sys
 from pathlib import Path
 
 import pandas as pd
+
+def check_issuer_limits(weights):
+    tolerance = 1e-12
+    clustered = weights[weights > 0.05 + tolerance].sum()
+    return weights.max() <= 0.10 + tolerance, clustered, clustered <= 0.40 + tolerance
+
+
+def test_issuer_limits():
+    # Weights are percentages of total NAV; the remaining allocation is cash.
+    cases = [
+        ("Exactly 5% excluded", [5, 5], True, 0, True),
+        ("Above 5% counts in full", [5.01, 5], True, 5.01, True),
+        ("Exactly 10% and 40%", [10, 10, 10, 10, 5], True, 40, True),
+        ("Single issuer above 10%", [10.01], False, 10.01, True),
+        ("Six issuers at 6%", [6] * 6, True, 36, True),
+        ("Seven issuers at 6%", [6] * 7, True, 42, False),
+    ]
+    for name, percentages, issuer_ok, combined, aggregate_ok in cases:
+        actual_issuer, actual_weight, actual_aggregate = check_issuer_limits(pd.Series(percentages) / 100)
+        if (actual_issuer != issuer_ok or abs(actual_weight * 100 - combined) > 1e-9
+                or actual_aggregate != aggregate_ok):
+            raise AssertionError(f"{name}: unexpected result {(actual_issuer, actual_weight, actual_aggregate)}")
+        print(f"PASS | {name} | combined {actual_weight:.2%}")
+    print(f"All {len(cases)} synthetic scenarios matched expectations.")
+
+
+if __name__ == "__main__" and sys.argv[1:] == ["--check-51040"]:
+    test_issuer_limits()
+    sys.exit(0)
+
 
 #storing the market data file
 
@@ -265,13 +296,14 @@ def weekly_order_sheet(book, sector, positions, marks, cash, nav):
     sheet["Projected sector weight"] = sector_weight
     sheet["Above stock cap"] = weight > stock_cap + 1e-12
     sheet["Above sector cap"] = sector_weight > sector_cap + 1e-12
-    clustered = weight[weight > 0.05 + 1e-12].sum()
+    issuer_ok, clustered, aggregate_ok = check_issuer_limits(weight)
     projected_cash = cash - trade_value.sum()
     sheet["Projected cash EUR"] = projected_cash
     sheet["Cash sufficient"] = projected_cash >= -0.005
-    sheet["Largest issuer within 10%"] = weight.max() <= 0.10 + 1e-12
+    sheet["Largest issuer within 10%"] = issuer_ok
     sheet["Weight in issuers above 5%"] = clustered
-    sheet["Within 40% limit"] = clustered <= 0.40 + 1e-12
+    sheet["Within 40% limit"] = aggregate_ok
+    sheet["5/10/40 result"] = "PASS" if issuer_ok and aggregate_ok else "BREACH"
     sheet["Trade value EUR"] = trade_value
     order = sheet["Trade shares"].map(lambda qty: 0 if qty < 0 else 1 if qty > 0 else 2)
     sheet = sheet.loc[order.sort_values(kind="stable").index]
@@ -291,6 +323,7 @@ def weekly_order_sheet(book, sector, positions, marks, cash, nav):
         finally:
             Path(tmp.name).unlink(missing_ok=True)
     print(f"Decision sheet: {target}")
+    print("Projected 5/10/40:", "PASS" if issuer_ok and aggregate_ok else "BREACH")
     print(f"Projected cash EUR {projected_cash:,.2f} | largest issuer {weight.max():.2%} | "
           f"largest sector {sector_weight.max():.2%} | issuers above 5% combined {clustered:.2%}")
     if (not sheet["Cash sufficient"].all() or sheet["Above stock cap"].any()
