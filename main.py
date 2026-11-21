@@ -407,3 +407,28 @@ if not portfolio_history.empty:
     print("\nClosed trades")
     print(closed_trades.to_string(index=False, float_format="{:,.2f}".format))
     print(f"Realised EUR {realised:,.2f} | Unrealised EUR {unrealised:,.2f} | Total EUR {realised + unrealised:,.2f}")
+
+
+if not portfolio_history.empty:
+    returns = portfolio_history["Daily return"]
+    wealth_index = 100 * (1 + portfolio_history["Cumulative return"])
+    peak = wealth_index.cummax().clip(lower=100)
+    drawdown = wealth_index / peak - 1
+    weeks = returns.index.to_period("W-FRI")
+    weekly = pd.DataFrame({
+        "Through date": returns.index.to_series().groupby(weeks).last(),
+        "Sessions this week": returns.groupby(weeks).count(),
+        "Weekly return": (1 + returns).groupby(weeks).prod() - 1,
+        "Since inception return": portfolio_history["Cumulative return"].groupby(weeks).last(),
+        "Closing drawdown": drawdown.groupby(weeks).last(),
+        "Maximum drawdown to date": drawdown.cummin().groupby(weeks).last(),
+    }).set_index("Through date")
+    annualisation = 252 ** 0.5
+    weekly["Realised volatility since inception"] = returns.expanding(min_periods=2).std() * annualisation
+    weekly["Realised volatility 60 sessions"] = returns.rolling(60).std() * annualisation
+    compounded = (1 + weekly["Weekly return"]).cumprod() - 1
+    if (compounded - weekly["Since inception return"]).abs().max() > 1e-10:
+        raise ValueError("Weekly returns do not reconcile to daily portfolio history.")
+    weekly.to_csv(history_path.with_name("weekly_performance.csv"))
+    print("\nWeekly portfolio performance and risk")
+    print(weekly.to_string(float_format="{:.2%}".format, na_rep="n.a."))
