@@ -164,7 +164,7 @@ L 575.244068 73.346505
 L 612.063729 97.376489 
 L 648.883389 117.352205 
 L 685.703049 163.328731 
-" clip-path="url(#p1dea03461d)" style="fill: none; stroke-dasharray: 5.55,2.4; stroke-dashoffset: 0; stroke: #677584; stroke-width: 1.5"/>
+" clip-path="url(#p1dea03461d)" style="fill: none; stroke: #677584; stroke-width: 1; stroke-linecap: square"/>
    </g>
    <g id="line2d_21">
     <path d="M 59.768826 93.16737 
@@ -209,7 +209,7 @@ z
      <path d="M 37.472115 140.985697 
 L 47.472115 140.985697 
 L 57.472115 140.985697 
-" style="fill: none; stroke-dasharray: 5.55,2.4; stroke-dashoffset: 0; stroke: #677584; stroke-width: 1.5"/>
+" style="fill: none; stroke: #677584; stroke-width: 1; stroke-linecap: square"/>
     </g>
     <g id="text_14">
      <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: start" x="65.472115" y="144.485697" transform="rotate(-0 65.472115 144.485697)">STOXX Europe 600 EUR Net Return  -3.02%</text>

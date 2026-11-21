@@ -591,7 +591,7 @@ if not portfolio_history.empty:
             fig.patch.set_facecolor("#f5f8f7")
             ax.set_facecolor("#f5f8f7")
             ax.axhline(0, color="#71857f", linewidth=0.9)
-            ax.plot(dates, benchmark_return, color="#677584", linestyle="--", label=f"STOXX Europe 600 EUR Net Return  {benchmark_return.iloc[-1]:+.2f}%")
+            ax.plot(dates, benchmark_return, color="#677584", linestyle="-", linewidth=1.0, label=f"STOXX Europe 600 EUR Net Return  {benchmark_return.iloc[-1]:+.2f}%")
             ax.plot(curve.index, curve, color="#146751", linewidth=2.3, label=f"Portfolio  {curve.iloc[-1]:+.2f}%")
             ax.legend(frameon=False)
             ax.scatter(curve.index[-1], curve.iloc[-1], color="#146751", s=30, zorder=3)
