@@ -114,3 +114,29 @@ print(sector_ratios["financial"].to_string(
     formatters={"ROTE": "{:.2%}".format, "CET1": "{:.2%}".format},
     na_rep="n.a.",
 ))
+
+
+def calculate_insurance_ratios(data):
+    price = pd.to_numeric(data["ADJ CLOSE"])
+    book_value_per_share = pd.to_numeric(data["Book Value x Share"])
+    net_income = pd.to_numeric(data["NET INCOME"])
+    common_equity = pd.to_numeric(data["COMMON SH. EQUITY"])
+    tangible_equity = pd.to_numeric(data["tangible common equity"])
+
+    ratios = pd.DataFrame(index=data.index)
+    ratios.index.name = "Ticker"
+    ratios["P/B"] = price / book_value_per_share.replace(0, float("nan"))
+    ratios["ROE"] = net_income / common_equity.replace(0, float("nan"))
+    ratios["ROTE"] = net_income / tangible_equity.replace(0, float("nan"))
+    return ratios
+
+
+insurers = pd.read_excel(workbook, sheet_name="insurance", header=2, index_col="Ticker").T
+sector_ratios["insurance"] = calculate_insurance_ratios(insurers)
+
+print("\nInsurance ratios")
+print(sector_ratios["insurance"].to_string(
+    float_format="{:.2f}".format,
+    formatters={"ROE": "{:.2%}".format, "ROTE": "{:.2%}".format},
+    na_rep="n.a.",
+))
