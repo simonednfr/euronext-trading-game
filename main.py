@@ -352,3 +352,58 @@ if not portfolio_history.empty:
         float_format="{:,.2f}".format, formatters={"Cumulative return": "{:.2%}".format}
     ))
     print(f"Saved {history_path}")
+
+
+
+def build_position_tracker(fills, closing_prices, portfolio_value):
+    balances = {}
+    sales = []
+    marks = closing_prices.copy()
+    for fill in fills.sort_values("Date", kind="stable").itertuples():
+        ticker = fill.Ticker
+        shares, basis = balances.get(ticker, (0, 0.0))
+        if fill.Operation == "Sell":
+            if fill.Quantity > shares:
+                raise ValueError(f"Sale exceeds shares held: {ticker} on {fill.Date:%Y-%m-%d}")
+            sold_basis = basis * (fill.Quantity / shares)
+            proceeds = fill.Price * fill.Quantity
+            sales.append([ticker, fill.Date, fill.Quantity, fill.Price, sold_basis, proceeds - sold_basis])
+            shares -= fill.Quantity
+            basis = basis - sold_basis if shares else 0.0
+        else:
+            shares += fill.Quantity
+            basis += fill.Quantity * fill.Price
+            if fill.Operation == "Gift" and ticker == "ENX.PA" and pd.isna(closing_prices.get(ticker)):
+                marks[ticker] = fill.Price
+        balances[ticker] = shares, basis
+
+    positions = []
+    for ticker, (shares, basis) in balances.items():
+        if shares > 0:
+            price = marks[ticker]
+            value = price * shares
+            positions.append([ticker, shares, basis / shares, price, value, value / portfolio_value, value - basis])
+
+    open_positions = pd.DataFrame(positions, columns=[
+        "Ticker", "Quantity", "Average cost", "Latest price", "Market value", "Weight", "Unrealised P&L"
+    ]).set_index("Ticker")
+    closed_trades = pd.DataFrame(sales, columns=[
+        "Ticker", "Sale date", "Quantity sold", "Sale price", "Cost basis sold", "Realised P&L"
+    ])
+    return open_positions, closed_trades
+
+
+if not portfolio_history.empty:
+    closing = portfolio_history.iloc[-1]
+    open_positions, closed_trades = build_position_tracker(executed, latest, closing["Total value"])
+    realised = closed_trades["Realised P&L"].sum()
+    unrealised = open_positions["Unrealised P&L"].sum()
+    if abs(realised + unrealised - closing["P&L"]) > 0.005:
+        raise ValueError("Position tracker P&L does not reconcile to portfolio history.")
+    open_positions.to_csv(history_path.with_name("open_positions.csv"))
+    closed_trades.to_csv(history_path.with_name("closed_trades.csv"), index=False)
+    print(f"\nOpen positions | {closing.name:%d %B %Y}")
+    print(open_positions.to_string(float_format="{:,.2f}".format, formatters={"Weight": "{:.2%}".format}))
+    print("\nClosed trades")
+    print(closed_trades.to_string(index=False, float_format="{:,.2f}".format))
+    print(f"Realised EUR {realised:,.2f} | Unrealised EUR {unrealised:,.2f} | Total EUR {realised + unrealised:,.2f}")
