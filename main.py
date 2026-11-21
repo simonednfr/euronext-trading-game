@@ -295,3 +295,60 @@ def size_tranche():
 
 
 tranche_orders = size_tranche()
+
+
+def build_portfolio_history(prices, fills, initial_cash):
+    """Value executed positions at each session close from the first fill."""
+    if fills.empty:
+        return pd.DataFrame()
+    dates = prices.index[prices.index >= fills["Date"].min()]
+    if not dates.is_unique or not fills["Date"].isin(dates).all():
+        raise ValueError("Check the price calendar: each fill needs a unique trading session.")
+    if fills["Price"].isna().any() or fills["Price"].le(0).any():
+        raise ValueError("Portfolio history requires a positive execution or gift price for each fill.")
+
+    changes = fills.pivot_table(index="Date", columns="Ticker", values="Signed quantity", aggfunc="sum")
+    holdings = changes.reindex(dates).fillna(0).cumsum()
+    if holdings.lt(0).any().any():
+        raise ValueError("Trade history produces a negative end-of-day position.")
+    marks = prices.reindex(index=dates, columns=holdings.columns).copy()
+    gifts = fills["Operation"].eq("Gift")
+    gift_reference_used = pd.Series(False, index=dates)
+    if "ENX.PA" in holdings:
+        gift_prices = fills.loc[gifts & fills["Ticker"].eq("ENX.PA")].groupby("Date")["Price"].last()
+        reference = gift_prices.reindex(dates).ffill()
+        gift_reference_used = holdings["ENX.PA"].gt(0) & marks["ENX.PA"].isna() & reference.notna()
+        marks["ENX.PA"] = marks["ENX.PA"].fillna(reference)
+    unavailable = holdings.gt(0) & (marks.isna() | marks.le(0))
+    if unavailable.any().any():
+        date, ticker = unavailable.stack().loc[lambda missing: missing].index[0]
+        raise ValueError(f"Missing closing price for held position {ticker} on {date:%Y-%m-%d}.")
+
+    amounts = fills["Signed quantity"] * fills["Price"]
+    cash_flow = -amounts.where(~gifts, 0).groupby(fills["Date"]).sum()
+    contributions = amounts.where(gifts, 0).groupby(fills["Date"]).sum()
+    history = pd.DataFrame(index=dates)
+    history["Cash"] = initial_cash + cash_flow.reindex(dates, fill_value=0).cumsum()
+    history["Securities"] = (holdings * marks).sum(axis=1)
+    history["Total value"] = history["Cash"] + history["Securities"]
+    history["Gift contribution"] = contributions.reindex(dates, fill_value=0)
+    history["Contributed capital"] = initial_cash + history["Gift contribution"].cumsum()
+    history["P&L"] = history["Total value"] - history["Contributed capital"]
+    # Treat gifts as contributions available at the start of the session.
+    previous_value = history["Total value"].shift(1, fill_value=initial_cash)
+    history["Daily return"] = history["Total value"] / (previous_value + history["Gift contribution"]) - 1
+    history["Cumulative return"] = (1 + history["Daily return"]).cumprod() - 1
+    history["Gift reference price used"] = gift_reference_used
+    return history
+
+
+portfolio_history = build_portfolio_history(prices, executed, starting_cash)
+if not portfolio_history.empty:
+    history_path = workbook.parent.parent / "reports" / "portfolio_history.csv"
+    history_path.parent.mkdir(exist_ok=True)
+    portfolio_history.to_csv(history_path, index_label="Date")
+    print("\nDaily portfolio history")
+    print(portfolio_history[["Cash", "Securities", "Total value", "P&L", "Cumulative return"]].to_string(
+        float_format="{:,.2f}".format, formatters={"Cumulative return": "{:.2%}".format}
+    ))
+    print(f"Saved {history_path}")
