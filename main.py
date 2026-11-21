@@ -233,7 +233,7 @@ print(signals[["Quantity", "Close", "Lower", "Upper", "Signal"]].to_string(
 
 
 # Weekly execution settings from PORTFOLIO and VOL. SIZING.
-phase_in = 0.50  # Held positions: set to 1.00 for top-ups. New entries always start at 50%.
+phase_in = 1.00  # Held positions target full weight. New entries always start at 50%.
 starting_cash = 50_000
 equity_budget = 0.90
 stock_cap = 0.06
