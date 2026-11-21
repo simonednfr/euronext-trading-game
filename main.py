@@ -230,3 +230,60 @@ print(f"\nEntry and exit signals | {prices.index[-1]:%d %B %Y}")
 print(signals[["Quantity", "Close", "Lower", "Upper", "Signal"]].to_string(
     float_format="{:.2f}".format, na_rep="n.a."
 ))
+
+
+# Weekly execution settings from PORTFOLIO and VOL. SIZING.
+phase_in = 0.50  # Set to 1.00 for the second tranche.
+starting_cash = 50_000
+equity_budget = 0.90
+stock_cap = 0.06
+sector_cap = 0.20
+no_trade_tolerance = 0.005
+
+
+def size_tranche():
+    if not trade_path.exists() or signals["Signal"].eq("Check data").any():
+        print("Sizing pending: check the trade register and signal inputs.")
+        return
+    positions = quantities[quantities > 0]
+    marks = latest.reindex(positions.index).copy()
+    gift_fills = executed.loc[executed["Operation"].eq("Gift") & executed["Ticker"].eq("ENX.PA")]
+    if "ENX.PA" in positions and pd.isna(marks["ENX.PA"]) and not gift_fills.empty:
+        marks["ENX.PA"] = gift_fills["Price"].iloc[-1]
+        print(f"ENX.PA valued at gift reference price: EUR {marks['ENX.PA']:.2f}")
+    fills = executed.loc[executed["Operation"].ne("Gift")]
+    if marks.isna().any() or marks.le(0).any() or fills["Price"].isna().any() or fills["Price"].le(0).any():
+        print("Sizing pending: missing or invalid holding or execution price.")
+        return
+    cash = starting_cash - (fills["Signed quantity"] * fills["Price"]).sum()
+    nav = cash + (positions * marks).sum()
+    if nav <= 0:
+        print("Sizing pending: portfolio value must be positive.")
+        return
+
+    book = signals[["Signal", "Quantity", "Close"]].copy()
+    active = book["Signal"].isin(["Eligible", "Retain and Size", "Stay In"])
+    vol = vol_60.iloc[-1].reindex(book.index)
+    if (active & (vol.isna() | vol.le(0))).any() or book["Close"].le(0).any():
+        print("Sizing pending: check prices and active-stock volatility.")
+        return
+    inverse_vol = 1 / vol.where(active)
+    capped = (equity_budget * inverse_vol / inverse_vol.sum()).fillna(0).clip(upper=stock_cap)
+    sector = signals["Sheet"].replace({"others": "communications"}).copy()
+    sector.loc[sector.index == "AI.PA"] = "materials"
+    sector_total = capped.groupby(sector).transform("sum")
+    book["Full weight"] = capped * (sector_cap / sector_total.where(sector_total > 0)).fillna(1).clip(upper=1)
+
+    current = book["Quantity"] * book["Close"] / nav
+    full = book["Full weight"]
+    phased = (phase_in * full).clip(lower=current).clip(upper=full)
+    book["Phased weight"] = phased
+    target_qty = (phased * nav / book["Close"]).astype("int64")
+    within_tolerance = book["Quantity"].gt(0) & phased.gt(0) & (current - phased).abs().lt(no_trade_tolerance)
+    book["Trade shares"] = (target_qty - book["Quantity"]).where(~within_tolerance, 0)
+    print(f"\nWeekly tranche {phase_in:.0%} | portfolio EUR {nav:,.2f} | cash EUR {cash:,.2f}")
+    print(book.to_string(formatters={"Full weight": "{:.2%}".format, "Phased weight": "{:.2%}".format}))
+    return book
+
+
+tranche_orders = size_tranche()
