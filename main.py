@@ -233,7 +233,7 @@ print(signals[["Quantity", "Close", "Lower", "Upper", "Signal"]].to_string(
 
 
 # Weekly execution settings from PORTFOLIO and VOL. SIZING.
-phase_in = 0.50  # Set to 1.00 for the second tranche.
+phase_in = 0.50  # Held positions: set to 1.00 for top-ups. New entries always start at 50%.
 starting_cash = 50_000
 equity_budget = 0.90
 stock_cap = 0.06
@@ -276,12 +276,20 @@ def size_tranche():
 
     current = book["Quantity"] * book["Close"] / nav
     full = book["Full weight"]
-    phased = (phase_in * full).clip(lower=current).clip(upper=full)
+    held_position = book["Quantity"].gt(0)
+    fraction = pd.Series(0.50, index=book.index).where(~held_position, phase_in)
+    phased = (fraction * full).clip(lower=current).clip(upper=full)
     book["Phased weight"] = phased
     target_qty = (phased * nav / book["Close"]).astype("int64")
     within_tolerance = book["Quantity"].gt(0) & phased.gt(0) & (current - phased).abs().lt(no_trade_tolerance)
     book["Trade shares"] = (target_qty - book["Quantity"]).where(~within_tolerance, 0)
-    print(f"\nWeekly tranche {phase_in:.0%} | portfolio EUR {nav:,.2f} | cash EUR {cash:,.2f}")
+    trade = book["Trade shares"]
+    book["Action"] = "No trade"
+    book.loc[trade.gt(0) & ~held_position, "Action"] = "First tranche"
+    book.loc[trade.gt(0) & held_position, "Action"] = "Top-up" if phase_in == 1 else "Add to first tranche"
+    book.loc[trade.lt(0), "Action"] = "Reduce"
+    book.loc[trade.lt(0) & book["Signal"].eq("Sell All"), "Action"] = "Sell all"
+    print(f"\nNew entries 50% | held target {phase_in:.0%} | portfolio EUR {nav:,.2f} | cash EUR {cash:,.2f}")
     print(book.to_string(formatters={"Full weight": "{:.2%}".format, "Phased weight": "{:.2%}".format}))
     return book
 
