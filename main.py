@@ -598,6 +598,70 @@ if not portfolio_history.empty:
             fig.savefig(chart_path, format="svg", metadata={"Date": None})
             plt.close(fig)
 
+        nav = closing["Total value"]
+        sectors = screen_inputs["Sheet"].to_dict()
+        sectors.update({"AI.PA": "materials", "ORA.PA": "communications",
+                        "KPN.AS": "communications", "ENX.PA": "financial"})
+        sector_pct = open_positions["Market value"].groupby(
+            [sectors[t] for t in open_positions.index]
+        ).sum().sort_values() * 100 / nav
+        cash_pct = 100 * closing["Cash"] / nav
+        attribution = open_positions["Unrealised P&L"].add(
+            closed_trades.groupby("Ticker")["Realised P&L"].sum(), fill_value=0
+        ).sort_values()
+        losses = attribution[attribution < 0].head(4)
+        gains = attribution[attribution > 0].tail(4)
+        shown = pd.concat([losses, gains])
+        remainder = attribution.drop(shown.index)
+        if not remainder.empty:
+            shown.loc["Other"] = remainder.sum()
+        if abs(cash_pct + sector_pct.sum() - 100) > 1e-7 or abs(shown.sum() - closing["P&L"]) > 0.005:
+            raise ValueError("Dashboard allocation or P&L does not reconcile.")
+
+        with plt.rc_context({"svg.hashsalt": "portfolio-charts", "svg.fonttype": "none",
+                             "font.size": 10, "axes.spines.top": False, "axes.spines.right": False,
+                             "axes.spines.left": False, "axes.spines.bottom": False,
+                             "figure.facecolor": "#f5f8f7", "axes.facecolor": "#f5f8f7"}):
+            fig = plt.figure(figsize=(11, 4.5), layout="constrained")
+            panels = fig.add_gridspec(2, 2, height_ratios=[1, 5], wspace=0.15)
+            mix = fig.add_subplot(panels[0, 0])
+            invested = sector_pct.sum()
+            mix.set_title(f"Invested {invested:.1f}%   /   Cash {cash_pct:.1f}%", loc="left", weight="bold")
+            mix.barh(0, invested, color="#146751")
+            mix.barh(0, cash_pct, left=invested, color="#a9bcb6")
+            mix.set_xlim(0, 100)
+            mix.set_axis_off()
+            ax = fig.add_subplot(panels[1, 0])
+            bars = ax.barh(sector_pct.index.str.title(), sector_pct, color="#438675")
+            ax.bar_label(bars, labels=[f"{v:.1f}%" for v in sector_pct], padding=3)
+            ax.axvline(sector_cap * 100, color="#a46746", linestyle="--")
+            ax.set_xlim(0, max(sector_cap * 100, sector_pct.max(), 1) * 1.20)
+            ax.set_xlabel(f"Share of total portfolio · dashed line = {sector_cap:.0%} cap")
+            pnl_ax = fig.add_subplot(panels[:, 1])
+            shown = shown.sort_values()
+            bars = pnl_ax.barh(shown.index, shown, color=["#ad6557" if v < 0 else "#146751" for v in shown])
+            pnl_ax.axvline(0, color="#53675f", linewidth=0.8)
+            pnl_ax.bar_label(bars, labels=[f"€{v:,.2f}" for v in shown], padding=3, fontsize=9)
+            pnl_ax.margins(x=0.32)
+            pnl_ax.set_title("Stock P&L since inception", loc="left", weight="bold")
+            pnl_ax.set_xlabel("Realised + unrealised · EUR")
+            fig.savefig(history_path.with_name("allocation_and_pnl.svg"), metadata={"Date": None})
+            plt.close(fig)
+
+            fig, ax = plt.subplots(figsize=(8, 3.4), layout="constrained")
+            ax.plot(weekly.index, weekly["Stock HHI"], "o-", color="#146751", label="Portfolio")
+            equal_hhi = 10_000 / weekly["Holdings"].replace(0, float("nan"))
+            ax.plot(weekly.index, equal_hhi, "s--", color="#976449", label="Equal-weight equivalent")
+            ax.set_title("Stock concentration at each weekly close", loc="left", weight="bold")
+            ax.set_ylabel("HHI · invested assets")
+            ax.legend(frameon=False)
+            if len(weekly) <= 8:
+                ax.set_xticks(weekly.index)
+            ax.xaxis.set_major_formatter(mdates.DateFormatter("%d %b"))
+            ax.grid(axis="y", alpha=0.2)
+            fig.savefig(history_path.with_name(f"stock_hhi_{closing.name:%Y-%m-%d}.svg"), metadata={"Date": None})
+            plt.close(fig)
+
         def euros(value):
             return f"{'−' if value < 0 else ''}€{abs(value):,.2f}"
 
@@ -613,6 +677,8 @@ if not portfolio_history.empty:
             f"| **{euros(closing['Total value'])}** | **{euros(closing['P&L'])}** | **{closing['Cumulative return']:.2%}** |",
             "",
             "![Daily cumulative portfolio return since inception](reports/portfolio_performance.svg)",
+            "",
+            "![Capital allocation by sector and realised plus unrealised P&L by stock](reports/allocation_and_pnl.svg)",
             "",
             "| Capital and earnings | EUR | Risk and diversification | Value |",
             "| --- | ---: | --- | ---: |",
