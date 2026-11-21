@@ -1,3 +1,6 @@
+import hashlib
+import os
+import tempfile
 from pathlib import Path
 
 import pandas as pd
@@ -241,6 +244,61 @@ sector_cap = 0.20
 no_trade_tolerance = 0.005
 
 
+def weekly_order_sheet(book, sector, positions, marks, cash, nav):
+    # Include out-of-universe holdings in projected issuer and sector exposures.
+    sheet = book.join(signals[["Valuation", "Quality", "Eligible", "Peer group"]])
+    outside = positions.index.difference(sheet.index)
+    for ticker in outside:
+        sheet.loc[ticker, ["Quantity", "Close", "Trade shares", "Action"]] = [
+            positions[ticker], marks[ticker], 0, "Outside pool"
+        ]
+    sheet.index.name = "Ticker"
+    sheet["Sector"] = sector.reindex(sheet.index)
+    sheet.loc[sheet.index == "ENX.PA", "Sector"] = "financial"
+    if sheet["Sector"].isna().any():
+        raise ValueError("Assign a platform sector to every holding before checking limits.")
+    trade_value = sheet["Trade shares"] * sheet["Close"]
+    sheet["Projected quantity"] = sheet["Quantity"] + sheet["Trade shares"]
+    weight = sheet["Projected quantity"] * sheet["Close"] / nav
+    sheet["Projected issuer weight"] = weight
+    sector_weight = weight.groupby(sheet["Sector"]).transform("sum")
+    sheet["Projected sector weight"] = sector_weight
+    sheet["Above stock cap"] = weight > stock_cap + 1e-12
+    sheet["Above sector cap"] = sector_weight > sector_cap + 1e-12
+    clustered = weight[weight > 0.05 + 1e-12].sum()
+    projected_cash = cash - trade_value.sum()
+    sheet["Projected cash EUR"] = projected_cash
+    sheet["Cash sufficient"] = projected_cash >= -0.005
+    sheet["Largest issuer within 10%"] = weight.max() <= 0.10 + 1e-12
+    sheet["Weight in issuers above 5%"] = clustered
+    sheet["Within 40% limit"] = clustered <= 0.40 + 1e-12
+    sheet["Trade value EUR"] = trade_value
+    order = sheet["Trade shares"].map(lambda qty: 0 if qty < 0 else 1 if qty > 0 else 2)
+    sheet = sheet.loc[order.sort_values(kind="stable").index]
+    sheet.insert(0, "Review date", prices.index[-1].date())
+    for label, path in [("Workbook", workbook), ("Fills", trade_path), ("Code", Path(__file__))]:
+        sheet[label + " SHA256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+    payload = sheet.to_csv().encode()
+    revision = hashlib.sha256(payload).hexdigest()[:16]
+    folder = workbook.parent.parent / "reports" / "decisions"
+    folder.mkdir(parents=True, exist_ok=True)
+    target = folder / f"{prices.index[-1]:%Y-%m-%d}_{revision}.csv"
+    if not target.exists():
+        with tempfile.NamedTemporaryFile(dir=folder, delete=False) as tmp:
+            tmp.write(payload)
+        try:
+            os.replace(tmp.name, target)
+        finally:
+            Path(tmp.name).unlink(missing_ok=True)
+    print(f"Decision sheet: {target}")
+    print(f"Projected cash EUR {projected_cash:,.2f} | largest issuer {weight.max():.2%} | "
+          f"largest sector {sector_weight.max():.2%} | issuers above 5% combined {clustered:.2%}")
+    if (not sheet["Cash sufficient"].all() or sheet["Above stock cap"].any()
+            or sheet["Above sector cap"].any() or not sheet["Largest issuer within 10%"].all()
+            or not sheet["Within 40% limit"].all()):
+        print("Review projected limit breaches before execution.")
+
+
 def size_tranche():
     if not trade_path.exists() or signals["Signal"].eq("Check data").any():
         print("Sizing pending: check the trade register and signal inputs.")
@@ -278,6 +336,14 @@ def size_tranche():
     full = book["Full weight"]
     held_position = book["Quantity"].gt(0)
     fraction = pd.Series(0.50, index=book.index).where(~held_position, phase_in)
+    # Trace the current holding back to its most recent opening fill.
+    ordered = executed.sort_values("Date", kind="stable")
+    previous_qty = ordered.groupby("Ticker")["Signed quantity"].cumsum() - ordered["Signed quantity"]
+    openings = ordered.loc[previous_qty.eq(0) & ordered["Signed quantity"].gt(0)]
+    opened = openings.groupby("Ticker")["Date"].last().reindex(book.index)
+    same_week = opened.dt.to_period("W-SUN").eq(prices.index[-1].to_period("W-SUN"))
+    fraction = fraction.mask(same_week, 0.50)
+    book["Tranche fraction"] = fraction.where(active)
     phased = (fraction * full).clip(lower=current).clip(upper=full)
     book["Phased weight"] = phased
     target_qty = (phased * nav / book["Close"]).astype("int64")
@@ -287,10 +353,12 @@ def size_tranche():
     book["Action"] = "No trade"
     book.loc[trade.gt(0) & ~held_position, "Action"] = "First tranche"
     book.loc[trade.gt(0) & held_position, "Action"] = "Top-up" if phase_in == 1 else "Add to first tranche"
+    book.loc[trade.gt(0) & held_position & same_week, "Action"] = "Add to first tranche"
     book.loc[trade.lt(0), "Action"] = "Reduce"
     book.loc[trade.lt(0) & book["Signal"].eq("Sell All"), "Action"] = "Sell all"
     print(f"\nNew entries 50% | held target {phase_in:.0%} | portfolio EUR {nav:,.2f} | cash EUR {cash:,.2f}")
     print(book.to_string(formatters={"Full weight": "{:.2%}".format, "Phased weight": "{:.2%}".format}))
+    weekly_order_sheet(book, sector, positions, marks, cash, nav)
     return book
 
 
@@ -354,15 +422,24 @@ def build_portfolio_history(prices, fills, initial_cash):
     # PF RISK models screened equities only, using each valuation date's weights.
     risk_returns = prices.pct_change(fill_method=None)
     ratios = []
+    risk_paths = []
     for date, allocation in weights.iterrows():
         active = allocation[allocation.gt(0) & allocation.index.isin(screen_inputs.index)]
         window = risk_returns.loc[:date, active.index].tail(60)
         ratio = float("nan")
+        risk = [float("nan")] * 3
         if not active.empty and len(window) == 60 and window.notna().all().all():
-            basket_vol = (window @ active).std()
+            invested_returns = window @ active
+            basket_vol = invested_returns.std()
+            portfolio_returns = invested_returns * history.at[date, "Securities"] / history.at[date, "Total value"]
+            path = (1 + portfolio_returns).cumprod()
+            risk = [portfolio_returns.std() * 252 ** 0.5, path.iloc[-1] - 1,
+                    (path / path.cummax().clip(lower=1) - 1).min()]
             if basket_vol > 0:
                 ratio = window.std().dot(active) / basket_vol
         ratios.append(ratio)
+        risk_paths.append(risk)
+    history[["Pro forma volatility", "Pro forma 60d return", "Pro forma 60d max drawdown"]] = risk_paths
     history["Diversification ratio"] = ratios
     return history
 
@@ -455,7 +532,8 @@ if not portfolio_history.empty:
     if (compounded - weekly["Since inception return"]).abs().max() > 1e-10:
         raise ValueError("Weekly returns do not reconcile to daily portfolio history.")
     diversification_columns = ["Holdings", "Sectors held", "Stock HHI", "Sector HHI", "Effective holdings", "Diversification ratio"]
-    weekly = weekly.join(portfolio_history[diversification_columns], how="left")
+    risk_columns = ["Pro forma volatility", "Pro forma 60d return", "Pro forma 60d max drawdown"]
+    weekly = weekly.join(portfolio_history[diversification_columns + risk_columns], how="left")
     weekly.to_csv(history_path.with_name("weekly_performance.csv"))
     print("\nWeekly portfolio performance and risk")
     print(weekly.drop(columns=diversification_columns).to_string(float_format="{:.2%}".format, na_rep="n.a."))
