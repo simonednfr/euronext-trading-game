@@ -45,39 +45,41 @@ print(summary.to_string(formatters={
     "Annualised volatility": "{:.2%}".format,
 }))
 
-industrials = pd.read_excel(
-    workbook,
-    sheet_name="industrial",
-    header=2,
-    index_col="Ticker",
-).T
+def calculate_standard_ratios(data):
+    price = pd.to_numeric(data["ADJ CLOSE"], errors="raise")
+    trailing_eps = pd.to_numeric(data["trailing EPS"], errors="raise")
+    forward_eps = pd.to_numeric(data["forward EPS"], errors="raise")
 
-price = pd.to_numeric(industrials["ADJ CLOSE"], errors="raise")
-trailing_eps = pd.to_numeric(industrials["trailing EPS"], errors="raise")
-forward_eps = pd.to_numeric(industrials["forward EPS"], errors="raise")
+    data["Trailing P/E"] = price / trailing_eps.where(trailing_eps > 0)
+    data["Forward P/E"] = price / forward_eps.where(forward_eps > 0)
 
-industrials["Trailing P/E"] = price / trailing_eps.where(trailing_eps > 0)
-industrials["Forward P/E"] = price / forward_eps.where(forward_eps > 0)
+    enterprise_value = pd.to_numeric(data["Enterprise Value"])
+    ebit = pd.to_numeric(data["EBIT"])
+    ebitda = pd.to_numeric(data["EBITDA"])
+    net_income = pd.to_numeric(data["NET INCOME"])
+    common_equity = pd.to_numeric(data["COMMON SH. EQUITY"])
+    eps_growth = pd.to_numeric(data["Yearly EPS growth"])
 
-enterprise_value = pd.to_numeric(industrials["Enterprise Value"])
-ebit = pd.to_numeric(industrials["EBIT"])
-ebitda = pd.to_numeric(industrials["EBITDA"])
-net_income = pd.to_numeric(industrials["NET INCOME"])
-common_equity = pd.to_numeric(industrials["COMMON SH. EQUITY"])
-eps_growth = pd.to_numeric(industrials["Yearly EPS growth"])
+    data["EV/EBIT"] = enterprise_value / ebit.replace(0, float("nan"))
+    data["EV/EBITDA"] = enterprise_value / ebitda.replace(0, float("nan"))
+    data["ROE"] = net_income / common_equity.replace(0, float("nan"))
+    # The workbook uses trailing P/E and expresses growth in percentage points.
+    data["PEG"] = data["Trailing P/E"] / (100 * eps_growth.replace(0, float("nan")))
 
-industrials["EV/EBIT"] = enterprise_value / ebit.replace(0, float("nan"))
-industrials["EV/EBITDA"] = enterprise_value / ebitda.replace(0, float("nan"))
-industrials["ROE"] = net_income / common_equity.replace(0, float("nan"))
-# The workbook uses trailing P/E and expresses growth in percentage points.
-industrials["PEG"] = industrials["Trailing P/E"] / (100 * eps_growth.replace(0, float("nan")))
+    data.columns.name = None
+    data.index.name = "Ticker"
+    return data
 
-industrials.columns.name = None
-industrials.index.name = "Ticker"
+
 ratio_columns = ["Trailing P/E", "Forward P/E", "EV/EBIT", "EV/EBITDA", "ROE", "PEG"]
-print("\nIndustrial ratios")
-print(industrials[ratio_columns].to_string(
-    float_format="{:.2f}".format,
-    formatters={"ROE": "{:.2%}".format},
-    na_rep="n.a.",
-))
+sector_sheets = ["industrial", "technology", "health care", "energy", "consumer", "utilities", "others"]
+sector_ratios = {}
+for sector in sector_sheets:
+    data = pd.read_excel(workbook, sheet_name=sector, header=2, index_col="Ticker").T
+    sector_ratios[sector] = calculate_standard_ratios(data)[ratio_columns]
+    print(f"\n{sector.title()} ratios")
+    print(sector_ratios[sector].to_string(
+        float_format="{:.2f}".format,
+        formatters={"ROE": "{:.2%}".format},
+        na_rep="n.a.",
+    ))
