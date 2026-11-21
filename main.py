@@ -181,3 +181,52 @@ for peer, members in screen_inputs.groupby("Peer group", sort=False):
 fundamental_screen = pd.concat(screen_tables)
 print("\nFundamental entry screen")
 print(fundamental_screen.to_string(float_format="{:.3f}".format, na_rep="n.a."))
+
+
+
+# Net executed fills through the market date. Gifts count as shares held.
+trade_path = workbook.parent / "trades.csv"
+trades = (pd.read_csv(trade_path) if trade_path.exists() else
+          pd.DataFrame(columns=["Date", "Ticker", "Operation", "Quantity"]))
+trades["Date"] = pd.to_datetime(trades["Date"], format="%Y-%m-%d", errors="raise")
+if trades[["Date", "Ticker", "Operation", "Quantity"]].isna().any().any():
+    raise ValueError("A trade is missing its date, ticker, operation or quantity.")
+direction = trades["Operation"].map({"Buy": 1, "Gift": 1, "Sell": -1})
+if direction.isna().any() or not trades["Quantity"].gt(0).all():
+    raise ValueError("Trades require Buy, Sell or Gift and a positive quantity.")
+trades["Signed quantity"] = trades["Quantity"] * direction
+executed = trades.loc[trades["Date"] <= prices.index[-1]]
+quantities = executed.groupby("Ticker")["Signed quantity"].sum()
+if quantities.lt(0).any():
+    raise ValueError("The trade register contains a negative net position.")
+
+signals = fundamental_screen.copy()
+signals["Quantity"] = quantities.reindex(signals.index, fill_value=0)
+signals["Close"] = prices.iloc[-1]
+signals["SMA100"] = sma_100.iloc[-1]
+signals["Lower"] = 0.99 * signals["SMA100"]
+signals["Upper"] = 1.01 * signals["SMA100"]
+above = signals["Close"] > signals["Upper"]
+below = signals["Close"] < signals["Lower"]
+held = signals["Quantity"] > 0
+hold_ok = (signals["Valuation"] <= 1.0) & (signals["Quality"] >= -1.5)
+bank = signals["Sheet"] == "financial"
+headroom = sector_ratios["financial"]["CET1 headroom (pp)"].reindex(signals.index)
+hold_ok &= ~bank | headroom.ge(0)
+
+signals["Signal"] = "Stay Out"
+signals.loc[~held & signals["Eligible"] & above, "Signal"] = "Eligible"
+signals.loc[held, "Signal"] = "Stay In"
+signals.loc[held & above, "Signal"] = "Retain and Size"
+signals.loc[held & (~hold_ok | below), "Signal"] = "Sell All"
+missing = signals[["Close", "SMA100", "Eligible"]].isna().any(axis=1)
+signals.loc[missing | (bank & headroom.isna()), "Signal"] = "Check data"
+
+if not trade_path.exists():
+    signals["Quantity"] = pd.NA
+    signals["Signal"] = "Load trade register"
+
+print(f"\nEntry and exit signals | {prices.index[-1]:%d %B %Y}")
+print(signals[["Quantity", "Close", "Lower", "Upper", "Signal"]].to_string(
+    float_format="{:.2f}".format, na_rep="n.a."
+))
