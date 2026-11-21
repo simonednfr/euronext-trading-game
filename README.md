@@ -29,8 +29,6 @@ Daily adjusted closes from Yahoo Finance and manually updated company fundamenta
 
 Stock HHI measures issuer concentration on a 0–10,000 scale using each security’s share of invested assets. Cash is excluded. Drawdowns are measured from the running peak of the portfolio return index.
 
-[Weekly reports](reports/) · [Strategy code](main.py)
+---
 
-### Refresh locally
-
-With pandas, openpyxl and matplotlib installed, run `python main.py` after saving the workbook and trade register. Commit the refreshed README and reports with the inputs used for that review.
+**Simone D’Onofrio** · [Weekly reports](reports/) · [Strategy code](main.py)
