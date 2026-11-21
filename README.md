@@ -14,6 +14,8 @@ Daily adjusted closes from Yahoo Finance and manually updated company fundamenta
 
 ![Daily cumulative portfolio return since inception](reports/portfolio_performance.svg)
 
+![Capital allocation by sector and realised plus unrealised P&L by stock](reports/allocation_and_pnl.svg)
+
 | Capital and earnings | EUR | Risk and diversification | Value |
 | --- | ---: | --- | ---: |
 | Starting cash | €50,000.00 | Annualised realised volatility | 5.41% |
