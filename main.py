@@ -140,3 +140,44 @@ print(sector_ratios["insurance"].to_string(
     formatters={"ROE": "{:.2%}".format, "ROTE": "{:.2%}".format},
     na_rep="n.a.",
 ))
+
+
+# Peer groups used only for fundamental screening.
+other_peers = {"AI.PA": "industrial", "ORA.PA": "utilities", "KPN.AS": "utilities"}
+screen_inputs = pd.concat(sector_ratios, names=["Sheet", "Ticker"]).reset_index("Sheet")
+screen_inputs["Peer group"] = screen_inputs["Sheet"]
+other = screen_inputs["Sheet"].eq("others")
+screen_inputs.loc[other, "Peer group"] = [other_peers[ticker] for ticker in screen_inputs.index[other]]
+
+screen_tables = []
+peer_z_scores = {}
+for peer, members in screen_inputs.groupby("Peer group", sort=False):
+    valuation = ["Trailing P/E", "Forward P/E", "EV/EBIT", "EV/EBITDA", "PEG"]
+    quality = ["ROE"]
+    if peer == "financial":
+        valuation, quality = ["P/TBV"], ["ROTE"]
+    elif peer == "insurance":
+        valuation, quality = ["P/B"], ["ROE", "ROTE"]
+
+    inputs = members[valuation + quality].copy()
+    if "PEG" in inputs:
+        inputs["PEG"] = inputs["PEG"].where(inputs["PEG"] > 0)
+
+    deviations = inputs - inputs.median()
+    mad = deviations.abs().median()
+    z = (deviations / (1.4826 * mad.replace(0, float("nan")))).clip(-3, 3)
+    peer_z_scores[peer] = z
+
+    scores = members[["Sheet", "Peer group"]].copy()
+    scores["Valuation"] = z[valuation].mean(axis=1)
+    scores["Quality"] = z[quality].mean(axis=1)
+    eligible = (scores["Valuation"] <= 0.5) & (scores["Quality"] >= -1)
+    if peer == "financial":
+        eligible &= members["CET1 headroom (pp)"] >= 1.0
+    scores["Eligible"] = eligible.astype("boolean").mask(scores[["Valuation", "Quality"]].isna().any(axis=1))
+    scores["Peer rank"] = scores["Valuation"].rank(method="min").astype("Int64")
+    screen_tables.append(scores)
+
+fundamental_screen = pd.concat(screen_tables)
+print("\nFundamental entry screen")
+print(fundamental_screen.to_string(float_format="{:.3f}".format, na_rep="n.a."))
