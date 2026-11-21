@@ -83,3 +83,34 @@ for sector in sector_sheets:
         formatters={"ROE": "{:.2%}".format},
         na_rep="n.a.",
     ))
+
+
+# Bank capital benchmark used in the reference workbook (RATIOS!C47).
+cet1_benchmark = 0.112
+
+
+def calculate_bank_ratios(data):
+    price = pd.to_numeric(data["ADJ CLOSE"])
+    tbv_per_share = pd.to_numeric(data["Tangible Book Value xSh"])
+    net_income = pd.to_numeric(data["NET INCOME"])
+    tangible_equity = pd.to_numeric(data["tangible common equity"])
+    cet1 = pd.to_numeric(data["CET1 ratio (latest)"])
+
+    ratios = pd.DataFrame(index=data.index)
+    ratios.index.name = "Ticker"
+    ratios["P/TBV"] = price / tbv_per_share.replace(0, float("nan"))
+    ratios["ROTE"] = net_income / tangible_equity.replace(0, float("nan"))
+    ratios["CET1"] = cet1
+    ratios["CET1 headroom (pp)"] = (cet1 - cet1_benchmark) * 100
+    return ratios
+
+
+banks = pd.read_excel(workbook, sheet_name="financial", header=2, index_col="Ticker").T
+sector_ratios["financial"] = calculate_bank_ratios(banks)
+
+print("\nBank ratios")
+print(sector_ratios["financial"].to_string(
+    float_format="{:.2f}".format,
+    formatters={"ROTE": "{:.2%}".format, "CET1": "{:.2%}".format},
+    na_rep="n.a.",
+))
