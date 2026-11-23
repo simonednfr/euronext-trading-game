@@ -8,7 +8,7 @@ Daily adjusted closes from Yahoo Finance and manually updated company fundamenta
 ## Portfolio dashboard
 
 <!-- portfolio:start -->
-**At the close of 20 November 2026** · 13 trading sessions
+**Snapshot at market close · Friday, 20 November 2026** · 13 trading sessions
 
 | Portfolio value | Total P&L | Return since inception |
 | ---: | ---: | ---: |

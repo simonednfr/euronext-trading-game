@@ -679,7 +679,7 @@ if not portfolio_history.empty:
         hhi = closing["Stock HHI"]
         hhi_label = f"{hhi:,.2f}" if pd.notna(hhi) else "No invested holdings"
         lines = [
-            f"**At the close of {closing.name:%d %B %Y}** · {len(returns)} trading sessions",
+            f"**Snapshot at market close · {closing.name:%A, %d %B %Y}** · {len(returns)} trading sessions",
             "",
             "| Portfolio value | Total P&L | Return since inception |",
             "| ---: | ---: | ---: |",
