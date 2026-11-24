@@ -65,13 +65,15 @@ start = min(end, first_fill) - pd.Timedelta(days=240)
 import yfinance as yf
 
 quotes = yf.download(
-    [*universe, benchmark_symbol], start=start.date(), end=end.date(), interval="1d",
+    universe, start=start.date(), end=end.date(), interval="1d",
     auto_adjust=False, group_by="column", ignore_tz=True, progress=False, threads=4,
 )
-if quotes.empty or not {"Adj Close", "Close"}.issubset(quotes.columns.get_level_values(0)):
+if quotes.empty or "Adj Close" not in quotes.columns.get_level_values(0):
     raise ValueError("Yahoo returned no usable daily history. Retry the refresh later.")
 prices = quotes["Adj Close"].reindex(columns=universe).dropna(how="all").sort_index()
-benchmark = quotes["Close"].reindex(columns=[benchmark_symbol])[benchmark_symbol]
+benchmark = pd.read_csv(workbook.parent / "benchmark.csv", parse_dates=["Date"]).set_index("Date")["Close"]
+if not benchmark.index.is_unique:
+    raise ValueError("Duplicate dates in data/benchmark.csv.")
 if prices.empty or not prices.index.is_unique:
     raise ValueError("Yahoo returned an empty or duplicate equity session calendar.")
 latest = prices.iloc[-1]
@@ -87,7 +89,7 @@ if pd.notna(first_fill):
     required = prices.index[prices.index >= prior_dates[-1]]
     invalid = ~benchmark.reindex(required).between(0, float("inf"), inclusive="neither")
     if invalid.any():
-        raise ValueError(f"Yahoo {benchmark_symbol} benchmark closes missing or invalid: {list(required[invalid].date)}")
+        raise ValueError(f"Investing.com benchmark closes missing or invalid in data/benchmark.csv: {list(required[invalid].date)}")
 for data in fundamentals.values():
     data["ADJ CLOSE"] = latest.reindex(data.index)
 
@@ -615,7 +617,7 @@ if not portfolio_history.empty:
         dates = curve.index.insert(0, baseline_date)
         levels = benchmark.reindex(dates)
         if levels.isna().any() or not levels.between(0, float("inf"), inclusive="neither").all():
-            raise ValueError("Check Yahoo benchmark history for missing or invalid closes on portfolio dates.")
+            raise ValueError("Check data/benchmark.csv for missing or invalid closes on portfolio dates.")
         benchmark_return = 100 * (levels / levels.iloc[0] - 1)
         curve = curve.reindex(dates, fill_value=0)
         chart_path = history_path.with_name("portfolio_vs_benchmark.svg")

@@ -3,7 +3,7 @@
 I built this strategy for the 2026 Euronext Trading Game on NextWise. Each week, I compare European equities with their sector peers using valuation and profitability z-scores. Price bands around a 100-session moving average guide entries and exits, and inverse volatility determines position size.
 
 I cap target weights at 6% per stock and 20% per sector, then check projected holdings against the 5/10/40 limits before trading.
-Each run downloads daily adjusted equity closes and the STOXX Europe 600 EUR Net Return index (SXXR.Z) from Yahoo Finance. Sector fundamentals come from the [workbook](data/market_data.xlsx). Portfolio results use [executed game trades](data/trades.csv).
+Each run downloads daily adjusted equity closes from Yahoo Finance. The [benchmark CSV](data/benchmark.csv) contains manually updated STOXX Europe 600 EUR Net Return closing levels from Investing.com. Sector fundamentals come from the [workbook](data/market_data.xlsx). Portfolio results use [executed game trades](data/trades.csv).
 
 ## Portfolio dashboard
 
