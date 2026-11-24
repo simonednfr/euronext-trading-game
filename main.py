@@ -325,7 +325,7 @@ print(signals[["Quantity", "Close", "Lower", "Upper", "Signal"]].to_string(
 
 
 # Weekly execution settings from PORTFOLIO and VOL. SIZING.
-phase_in = 0.50  # Portfolio-wide decision for held positions: 0.50 or 1.00.
+phase_in = 0.5  # Portfolio-wide decision for held positions: 0.50 or 1.00.
 starting_cash = 50_000
 equity_budget = 0.90
 stock_cap = 0.06
