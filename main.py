@@ -55,7 +55,6 @@ fundamentals = {
     for sector in [*sector_sheets, "financial", "insurance"]
 }
 universe = sorted(set(trades["Ticker"]).union(*(data.index for data in fundamentals.values())))
-benchmark_symbol = "SXXR.Z"
 now = pd.Timestamp.now(tz="Europe/Rome")
 # Request today's daily bar only after the European closing auctions and publication buffer.
 end = now.normalize().tz_localize(None) + pd.Timedelta(days=int(now.hour >= 19))
@@ -64,16 +63,31 @@ start = min(end, first_fill) - pd.Timedelta(days=240)
 
 import yfinance as yf
 
-quotes = yf.download(
-    universe, start=start.date(), end=end.date(), interval="1d",
-    auto_adjust=False, group_by="column", ignore_tz=True, progress=False, threads=4,
-)
-if quotes.empty or "Adj Close" not in quotes.columns.get_level_values(0):
-    raise ValueError("Yahoo returned no usable daily history. Retry the refresh later.")
-prices = quotes["Adj Close"].reindex(columns=universe).dropna(how="all").sort_index()
-benchmark = pd.read_csv(workbook.parent / "benchmark.csv", parse_dates=["Date"]).set_index("Date")["Close"]
-if not benchmark.index.is_unique:
-    raise ValueError("Duplicate dates in data/benchmark.csv.")
+import time
+
+
+def download_adjusted(tickers):
+    quotes = yf.download(
+        tickers, start=start.date(), end=end.date(), interval="1d",
+        auto_adjust=False, group_by="column", ignore_tz=True, progress=False, threads=2,
+    )
+    if quotes.empty or "Adj Close" not in quotes.columns.get_level_values(0):
+        return pd.DataFrame(columns=tickers, dtype=float)
+    return quotes["Adj Close"].reindex(columns=tickers).dropna(how="all").sort_index()
+
+
+prices = download_adjusted(universe)
+for delay in (10, 30):
+    missing = universe if prices.empty else prices.columns[
+        ~prices.iloc[-1].between(0, float("inf"), inclusive="neither")
+    ].tolist()
+    if not missing:
+        break
+    print(f"Retrying {len(missing)} Yahoo symbols in {delay}s: {', '.join(missing)}", flush=True)
+    time.sleep(delay)
+    recovered = download_adjusted(missing)
+    prices = recovered.combine_first(prices).reindex(columns=universe).sort_index()
+
 if prices.empty or not prices.index.is_unique:
     raise ValueError("Yahoo returned an empty or duplicate equity session calendar.")
 latest = prices.iloc[-1]
@@ -82,18 +96,10 @@ if len(incomplete):
     raise ValueError(f"Missing or invalid Yahoo adjusted closes on {latest.name.date()}: {list(incomplete)}")
 if len(prices) < 100 or (prices.index[-1] >= end):
     raise ValueError("Yahoo returned insufficient history or an unfinished session.")
-if pd.notna(first_fill):
-    prior_dates = prices.index[prices.index < first_fill]
-    if prior_dates.empty:
-        raise ValueError("Yahoo history does not cover the pre-inception baseline.")
-    required = prices.index[prices.index >= prior_dates[-1]]
-    invalid = ~benchmark.reindex(required).between(0, float("inf"), inclusive="neither")
-    if invalid.any():
-        raise ValueError(f"Investing.com benchmark closes missing or invalid in data/benchmark.csv: {list(required[invalid].date)}")
 for data in fundamentals.values():
     data["ADJ CLOSE"] = latest.reindex(data.index)
 
-snapshot = prices.join(benchmark.rename(benchmark_symbol)).rename_axis("Date")
+snapshot = prices.rename_axis("Date")
 snapshot_path = workbook.parent / "yahoo_daily.csv"
 with tempfile.NamedTemporaryFile(dir=workbook.parent, delete=False, mode="w") as tmp:
     snapshot.to_csv(tmp)
@@ -125,6 +131,21 @@ print(summary.to_string(formatters={
     "Distance from SMA": "{:+.2%}".format,
     "Annualised volatility": "{:.2%}".format,
 }))
+
+if "--market-only" in sys.argv[1:]:
+    sys.exit(0)
+
+benchmark = pd.read_csv(workbook.parent / "benchmark.csv", parse_dates=["Date"]).set_index("Date")["Close"]
+if not benchmark.index.is_unique:
+    raise ValueError("Duplicate dates in data/benchmark.csv.")
+if pd.notna(first_fill):
+    prior_dates = prices.index[prices.index < first_fill]
+    if prior_dates.empty:
+        raise ValueError("Yahoo history does not cover the pre-inception baseline.")
+    required = prices.index[prices.index >= prior_dates[-1]]
+    invalid = ~benchmark.reindex(required).between(0, float("inf"), inclusive="neither")
+    if invalid.any():
+        raise ValueError(f"Investing.com benchmark closes missing or invalid in data/benchmark.csv: {list(required[invalid].date)}")
 
 def calculate_standard_ratios(data):
     price = pd.to_numeric(data["ADJ CLOSE"], errors="raise")
