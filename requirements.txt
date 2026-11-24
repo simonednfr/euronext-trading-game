@@ -1,0 +1,4 @@
+pandas
+openpyxl
+matplotlib
+yfinance>=0.2.54

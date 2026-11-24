@@ -36,21 +36,66 @@ if __name__ == "__main__" and sys.argv[1:] == ["--check-51040"]:
     sys.exit(0)
 
 
-#storing the market data file
-
+# Fundamentals and executed fills define the Yahoo ticker universe.
 workbook = Path(__file__).resolve().parent / "data" / "market_data.xlsx"
+trade_path = workbook.parent / "trades.csv"
+trades = (pd.read_csv(trade_path) if trade_path.exists() else
+          pd.DataFrame(columns=["Date", "Ticker", "Operation", "Quantity"]))
+trades["Date"] = pd.to_datetime(trades["Date"], format="%Y-%m-%d", errors="raise")
+if trades[["Date", "Ticker", "Operation", "Quantity"]].isna().any().any():
+    raise ValueError("A trade is missing its date, ticker, operation or quantity.")
+direction = trades["Operation"].map({"Buy": 1, "Gift": 1, "Sell": -1})
+if direction.isna().any() or not trades["Quantity"].gt(0).all():
+    raise ValueError("Trades require Buy, Sell or Gift and a positive quantity.")
+trades["Signed quantity"] = trades["Quantity"] * direction
 
-#reading and extraction of prices
+sector_sheets = ["industrial", "technology", "health care", "energy", "consumer", "utilities", "others"]
+fundamentals = {
+    sector: pd.read_excel(workbook, sheet_name=sector, header=2, index_col="Ticker").T
+    for sector in [*sector_sheets, "financial", "insurance"]
+}
+universe = sorted(set(trades["Ticker"]).union(*(data.index for data in fundamentals.values())))
+benchmark_symbol = "SXXR.Z"
+now = pd.Timestamp.now(tz="Europe/Rome")
+# Request today's daily bar only after the European closing auctions and publication buffer.
+end = now.normalize().tz_localize(None) + pd.Timedelta(days=int(now.hour >= 19))
+first_fill = trades["Date"].min()
+start = min(end, first_fill) - pd.Timedelta(days=240)
 
-prices = pd.read_excel(
-    workbook,
-    sheet_name="ADJ CLOSE",
-    header=2,
-    index_col="Date",
-    parse_dates=True,
-).sort_index()
+import yfinance as yf
 
+quotes = yf.download(
+    [*universe, benchmark_symbol], start=start.date(), end=end.date(), interval="1d",
+    auto_adjust=False, group_by="column", ignore_tz=True, progress=False, threads=4,
+)
+if quotes.empty or not {"Adj Close", "Close"}.issubset(quotes.columns.get_level_values(0)):
+    raise ValueError("Yahoo returned no usable daily history. Retry the refresh later.")
+prices = quotes["Adj Close"].reindex(columns=universe).dropna(how="all").sort_index()
+benchmark = quotes["Close"].reindex(columns=[benchmark_symbol])[benchmark_symbol]
+if prices.empty or not prices.index.is_unique:
+    raise ValueError("Yahoo returned an empty or duplicate equity session calendar.")
 latest = prices.iloc[-1]
+incomplete = latest.index[~latest.between(0, float("inf"), inclusive="neither")]
+if len(incomplete):
+    raise ValueError(f"Missing or invalid Yahoo adjusted closes on {latest.name.date()}: {list(incomplete)}")
+if len(prices) < 100 or (prices.index[-1] >= end):
+    raise ValueError("Yahoo returned insufficient history or an unfinished session.")
+if pd.notna(first_fill):
+    prior_dates = prices.index[prices.index < first_fill]
+    if prior_dates.empty:
+        raise ValueError("Yahoo history does not cover the pre-inception baseline.")
+    required = prices.index[prices.index >= prior_dates[-1]]
+    invalid = ~benchmark.reindex(required).between(0, float("inf"), inclusive="neither")
+    if invalid.any():
+        raise ValueError(f"Yahoo {benchmark_symbol} benchmark closes missing or invalid: {list(required[invalid].date)}")
+for data in fundamentals.values():
+    data["ADJ CLOSE"] = latest.reindex(data.index)
+
+snapshot = prices.join(benchmark.rename(benchmark_symbol)).rename_axis("Date")
+snapshot_path = workbook.parent / "yahoo_daily.csv"
+with tempfile.NamedTemporaryFile(dir=workbook.parent, delete=False, mode="w") as tmp:
+    snapshot.to_csv(tmp)
+os.replace(tmp.name, snapshot_path)
 print(f"Latest trading date: {latest.name:%d %B %Y}")
 print(f"Trading dates: {len(prices)}")
 print(f"Prices available: {latest.count()} of {len(latest)}")
@@ -106,10 +151,10 @@ def calculate_standard_ratios(data):
 
 
 ratio_columns = ["Trailing P/E", "Forward P/E", "EV/EBIT", "EV/EBITDA", "ROE", "PEG"]
-sector_sheets = ["industrial", "technology", "health care", "energy", "consumer", "utilities", "others"]
+
 sector_ratios = {}
 for sector in sector_sheets:
-    data = pd.read_excel(workbook, sheet_name=sector, header=2, index_col="Ticker").T
+    data = fundamentals[sector]
     sector_ratios[sector] = calculate_standard_ratios(data)[ratio_columns]
     print(f"\n{sector.title()} ratios")
     print(sector_ratios[sector].to_string(
@@ -139,7 +184,7 @@ def calculate_bank_ratios(data):
     return ratios
 
 
-banks = pd.read_excel(workbook, sheet_name="financial", header=2, index_col="Ticker").T
+banks = fundamentals["financial"]
 sector_ratios["financial"] = calculate_bank_ratios(banks)
 
 print("\nBank ratios")
@@ -165,7 +210,7 @@ def calculate_insurance_ratios(data):
     return ratios
 
 
-insurers = pd.read_excel(workbook, sheet_name="insurance", header=2, index_col="Ticker").T
+insurers = fundamentals["insurance"]
 sector_ratios["insurance"] = calculate_insurance_ratios(insurers)
 
 print("\nInsurance ratios")
@@ -219,16 +264,6 @@ print(fundamental_screen.to_string(float_format="{:.3f}".format, na_rep="n.a."))
 
 
 # Net executed fills through the market date. Gifts count as shares held.
-trade_path = workbook.parent / "trades.csv"
-trades = (pd.read_csv(trade_path) if trade_path.exists() else
-          pd.DataFrame(columns=["Date", "Ticker", "Operation", "Quantity"]))
-trades["Date"] = pd.to_datetime(trades["Date"], format="%Y-%m-%d", errors="raise")
-if trades[["Date", "Ticker", "Operation", "Quantity"]].isna().any().any():
-    raise ValueError("A trade is missing its date, ticker, operation or quantity.")
-direction = trades["Operation"].map({"Buy": 1, "Gift": 1, "Sell": -1})
-if direction.isna().any() or not trades["Quantity"].gt(0).all():
-    raise ValueError("Trades require Buy, Sell or Gift and a positive quantity.")
-trades["Signed quantity"] = trades["Quantity"] * direction
 executed = trades.loc[trades["Date"] <= prices.index[-1]]
 quantities = executed.groupby("Ticker")["Signed quantity"].sum()
 if quantities.lt(0).any():
@@ -308,7 +343,7 @@ def weekly_order_sheet(book, sector, positions, marks, cash, nav):
     order = sheet["Trade shares"].map(lambda qty: 0 if qty < 0 else 1 if qty > 0 else 2)
     sheet = sheet.loc[order.sort_values(kind="stable").index]
     sheet.insert(0, "Review date", prices.index[-1].date())
-    for label, path in [("Workbook", workbook), ("Fills", trade_path), ("Code", Path(__file__))]:
+    for label, path in [("Yahoo prices", snapshot_path), ("Workbook", workbook), ("Fills", trade_path), ("Code", Path(__file__))]:
         sheet[label + " SHA256"] = hashlib.sha256(path.read_bytes()).hexdigest()
     payload = sheet.to_csv().encode()
     revision = hashlib.sha256(payload).hexdigest()[:16]
@@ -576,12 +611,11 @@ if not portfolio_history.empty:
         import matplotlib.dates as mdates
 
         curve = portfolio_history["Cumulative return"] * 100
-        benchmark = pd.read_csv(workbook.parent / "benchmark.csv", parse_dates=["Date"]).set_index("Date")["Close"]
         baseline_date = prices.index[prices.index < curve.index[0]].max()
         dates = curve.index.insert(0, baseline_date)
         levels = benchmark.reindex(dates)
         if levels.isna().any() or not levels.between(0, float("inf"), inclusive="neither").all():
-            raise ValueError("Check benchmark.csv for missing or invalid closes on portfolio dates.")
+            raise ValueError("Check Yahoo benchmark history for missing or invalid closes on portfolio dates.")
         benchmark_return = 100 * (levels / levels.iloc[0] - 1)
         curve = curve.reindex(dates, fill_value=0)
         chart_path = history_path.with_name("portfolio_vs_benchmark.svg")
