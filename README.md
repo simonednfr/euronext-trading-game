@@ -8,11 +8,11 @@ Each run downloads daily adjusted equity closes from Yahoo Finance. The [benchma
 ## Portfolio dashboard
 
 <!-- portfolio:start -->
-**Snapshot at market close · Tuesday, 24 November 2026** · 15 trading sessions
+**Snapshot at market close · Wednesday, 25 November 2026** · 16 trading sessions
 
 | Portfolio value | Total P&L | Return since inception |
 | ---: | ---: | ---: |
-| **€49,416.09** | **−€760.81** | **-1.52%** |
+| **€49,432.93** | **−€743.97** | **-1.48%** |
 
 ![Portfolio and STOXX Europe 600 EUR Net Return since inception](reports/portfolio_vs_benchmark.svg)
 
@@ -20,10 +20,10 @@ Each run downloads daily adjusted equity closes from Yahoo Finance. The [benchma
 
 | Capital and earnings | EUR | Risk and diversification | Value |
 | --- | ---: | --- | ---: |
-| Starting cash | €50,000.00 | Annualised realised volatility | 5.75% |
-| Starting capital with gift | €50,176.90 | Current drawdown | -1.68% |
+| Starting cash | €50,000.00 | Annualised realised volatility | 5.58% |
+| Starting capital with gift | €50,176.90 | Current drawdown | -1.65% |
 | Realised P&L | −€212.98 | Maximum drawdown | -2.25% |
-| Unrealised P&L | −€547.83 | Stock HHI | 855.76 |
+| Unrealised P&L | −€530.99 | Stock HHI | 770.82 |
 
 <!-- portfolio:end -->
 
